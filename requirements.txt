@@ -1,0 +1,13 @@
+# requirements.txt
+streamlit
+transformers
+pdfminer.six
+torch
+scikit-learn
+nltk
+pandas
+
+# Optional enhancements
+sentence-transformers
+openai
+faiss-cpu

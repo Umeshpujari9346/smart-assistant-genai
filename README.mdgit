@@ -1,0 +1,1 @@
+"# smart-assistant-genai"  initgit add README.mdgit commit -m "first commit"git branch -M maingit remote add origin https://github.com/Umeshpujari9346/smart-assistant-genai.gitgit push -u origin main
