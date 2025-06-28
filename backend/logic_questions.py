@@ -1,43 +1,113 @@
-# logic_questions.py
-import random
+
+
+
+import streamlit as st
+import re
 from transformers import pipeline
+from backend.qa_engine import answer_question
+from backend.summarizer import generate_summary
+import logging
 
-# Optional: Use a local LLM or OpenAI to generate better logical Qs
-qa_pipeline = pipeline("question-answering", model="distilbert-base-uncased-distilled-squad")
+qg_pipeline = pipeline("text-generation", model="gpt2")
+
+@st.cache_data
+def generate_logic_questions(document_text, num_questions=3):
+    """Generate comprehension questions using GPT-2 with simplified approach"""
+
+    clean_text = re.sub(r"\s+", " ", document_text.strip())
+    context = clean_text[:500]  # Use only first 500 characters
+    print("context:",context)
+
+    if not context:
+        return ["Document text is empty or invalid."]
 
 
-def generate_logic_questions(doc_text):
-    """
-    Create 3 logic-based or comprehension questions from the text.
-    """
-    prompts = [
-        "What is the main argument or conclusion presented?",
-        "What assumptions does the text rely on?",
-        "What are the implications of the main idea?",
-        "Can you infer any challenges or limitations mentioned?",
-        "What is the relationship between two key concepts in the text?"
-    ]
-    return random.sample(prompts, 3)
+    prompt = (
+        f"Create {num_questions} short questions about this text: '{context}'\n\n"
+        f"Questions:\n1. "
+    )
+
+    try:
+
+        response = qg_pipeline(
+            prompt,
+            max_new_tokens=100,
+            num_return_sequences=1,
+            truncation=True,
+            do_sample=True,
+            temperature=0.5,
+            top_k=50,
+            no_repeat_ngram_size=3
+        )
+
+        generated_text = response[0]['generated_text']
+        print(f"Generated text: {generated_text}")
 
 
-def evaluate_answers(questions, user_answers, context_text):
-    """
-    Evaluate user's answers by comparing to model-derived answer.
-    Return (correct_flag, justification) for each.
-    """
+        generated_part = generated_text.split("Questions:\n")[-1].strip()
+
+
+        question_lines = []
+        for line in generated_part.split('\n'):
+            line = line.strip()
+
+            if re.match(r'^\d+\.', line):
+                line = re.sub(r'^\d+\.\s*', '', line)
+            question_lines.append(line)
+
+
+        questions = []
+        for q in question_lines[:num_questions]:
+            print('q',q)
+            q = q.strip()
+
+            q = q.replace('"', '').replace("'", '')
+
+            if q and not q.endswith('?'):
+                q += '?'
+            questions.append(q)
+
+        return questions if questions else ["What is the main topic?"]
+
+    except Exception as e:
+        print(f"Question generation error: {e}")
+
+        return [
+            "What is the main topic of this document?",
+            "What problem does this text address?",
+            "What solution is proposed?"
+        ]
+
+
+@st.cache_data
+def evaluate_answers(questions, user_answers, document_text):
+
     results = []
-    for question, user_ans in zip(questions, user_answers):
-        try:
-            result = qa_pipeline(question=question, context=context_text)
-            model_ans = result['answer'].strip().lower()
-            user_ans_clean = user_ans.strip().lower()
-            correct = model_ans in user_ans_clean or user_ans_clean in model_ans
-            snippet = context_text[result['start']:result['end']+120]
-        except:
-            correct = False
-            snippet = "Could not evaluate."
 
-        justification = f"Expected answer was: '{model_ans}'. Found in: \"{snippet.strip()}\""
-        results.append((correct, justification))
+    for question, user_answer in zip(questions, user_answers):
+
+
+        model_answer, justification = answer_question(question, document_text)
+
+
+        clean_user = user_answer.lower().strip()
+        clean_model = model_answer.lower().strip()
+
+
+        is_correct = (
+                clean_model in clean_user or
+                clean_user in clean_model or
+                any(word in clean_user for word in clean_model.split() if len(word) > 4)
+        )
+
+        results.append({
+            "question": question,
+            "user_answer": user_answer,
+            "model_answer": model_answer,
+            "is_correct": is_correct,
+            "justification": justification
+        })
 
     return results
+
+
